@@ -1,3 +1,9 @@
+# Pinned to the same versions as the Quartermaster app, so figures match the app exactly
 numpy==2.5.3
-pandas=3.0.6
-yfinance=1.7.0
+pandas==3.0.6
+plotly==7.1.0
+streamlit==1.65.0
+yfinance==1.7.0
+# Notes-only dependencies
+python-dotenv==1.0.1
+requests==2.32.3

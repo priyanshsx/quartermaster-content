@@ -54,3 +54,8 @@ NEW_ATH_MIN_UNDERWATER_DAYS = 30  # ignore new highs after only a brief dip
 YTD_MIN_OBS = 30               # need this many trading days in the year before a "largest of the year" note
 
 DISCLAIMER = "Historical measurements only. Not investment advice."
+
+# --- Scheduling ----------------------------------------------------------------
+# At login the network may not be up yet: if every download fails, wait and retry.
+NETWORK_RETRIES = 3
+NETWORK_RETRY_WAIT_SECONDS = 120

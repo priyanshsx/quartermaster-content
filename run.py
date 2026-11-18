@@ -9,6 +9,7 @@ render + text check → digest → Telegram → archive.
 """
 import argparse
 import logging
+import time
 from datetime import datetime, timezone
 
 import config
@@ -87,9 +88,25 @@ def status_table(data):
     return "\n".join(rows) + "\n"
 
 
+def load_with_retry(only):
+    """Loads every asset. If every download failed, the network probably isn't
+    up yet (e.g. just after login), so wait and try again before giving up."""
+    from data import load_all  # imported here: pulls in the app's engine
+    for attempt in range(1, config.NETWORK_RETRIES + 1):
+        data, skipped = load_all(only)
+        all_downloads_failed = not data and skipped and all("download failed" in why for _, why in skipped)
+        if not all_downloads_failed:
+            return data, skipped
+        logging.warning("every download failed (attempt %d of %d)", attempt, config.NETWORK_RETRIES)
+        if attempt < config.NETWORK_RETRIES:
+            time.sleep(config.NETWORK_RETRY_WAIT_SECONDS)
+    raise SystemExit("Every download failed; no network? Today's run was not recorded and will retry next time.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Quartermaster Daily Notes")
-    parser.add_argument("--dry-run", action="store_true", help="print only; no Telegram, no cooldowns saved")
+    parser.add_argument("--dry-run", action="store_true", help="print only; no Telegram, nothing saved")
+    parser.add_argument("--force", action="store_true", help="run even if today's digest was already sent")
     parser.add_argument("--only", help="comma-separated tickers, e.g. BTC-USD,ETH-USD")
     parser.add_argument("--top", type=int, default=config.TOP_N)
     parser.add_argument("--status", action="store_true",
@@ -102,17 +119,25 @@ def main():
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    from data import load_all  # imported here: pulls in the app's engine
+    # "Today" is the UTC date: 05:30 IST to 05:30 IST the next morning.
     run_date = datetime.now(timezone.utc).date()
-    only = set(args.only.split(",")) if args.only else None
+    con = state.connect(config.DB_PATH)
 
-    data, skipped = load_all(only)
+    # One digest per day. launchd starts this at 06:30 IST and at every login,
+    # so after a restart it catches up only if the 06:30 run was missed.
+    if not args.dry_run and not args.force and state.already_ran(con, run_date):
+        msg = f"Digest for {fmt.date(run_date)} already sent; nothing to do."
+        logging.info(msg)
+        print(msg)
+        return
+
+    only = set(args.only.split(",")) if args.only else None
+    data, skipped = load_with_retry(only)
     logging.info("loaded %d assets, skipped %d", len(data), len(skipped))
 
     if args.status:
         print(status_table(data))
 
-    con = state.connect(config.DB_PATH)
     digest, top = build_digest(data, skipped, run_date, con, args.top)
     print(digest)
 
@@ -121,8 +146,9 @@ def main():
         return
 
     from telegram_send import send_message
-    send_message(digest)
+    send_message(digest)              # if this fails, nothing below runs, so the day isn't marked done
     state.record(con, top, run_date)
+    state.record_run(con, run_date, len(top))
     logging.info("sent %d notes", len(top))
 
 

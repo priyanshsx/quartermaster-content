@@ -4,3 +4,4 @@ screenshots/
 logs/
 __pycache__/
 .venv/
+launchd/*.plist

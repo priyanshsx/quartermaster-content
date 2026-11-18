@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS sent (
     text       TEXT
 );
 CREATE INDEX IF NOT EXISTS sent_lookup ON sent (check_name, ticker, key, sent_on);
+CREATE TABLE IF NOT EXISTS runs (
+    run_date    TEXT PRIMARY KEY,   -- ISO date (UTC) the digest was for
+    finished_at TEXT NOT NULL,      -- UTC timestamp the digest was sent
+    notes       INTEGER NOT NULL    -- how many notes it contained (0 on a quiet day)
+);
 """
 
 
@@ -29,6 +34,19 @@ def on_cooldown(con, note, cooldown_days, today):
     if not row or not row[0]:
         return False
     return (today - date.fromisoformat(row[0])).days < cooldown_days
+
+
+def already_ran(con, today):
+    """True if today's digest has already been sent, including quiet days."""
+    return con.execute("SELECT 1 FROM runs WHERE run_date = ?", (today.isoformat(),)).fetchone() is not None
+
+
+def record_run(con, today, n_notes):
+    con.execute(
+        "INSERT OR REPLACE INTO runs VALUES (?, datetime('now'), ?)",
+        (today.isoformat(), n_notes),
+    )
+    con.commit()
 
 
 def record(con, notes, today):
